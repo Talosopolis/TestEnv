@@ -1,0 +1,8 @@
+.git
+.gitignore
+services/ai-backend/venv
+services/ai-backend/__pycache__
+services/ai-backend/data
+services/ai-backend/uploaded_materials
+services/frontend/node_modules
+services/frontend/dist
