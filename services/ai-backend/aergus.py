@@ -57,10 +57,10 @@ class Aergus:
         self.classifier = None
         if pipeline:
             try:
-                # print("AERGUS: Summoning Tier 2 Guardian (unitary/toxic-bert)...")
-                # self.classifier = pipeline("text-classification", model="unitary/toxic-bert", top_k=None, device=-1)
-                # print("AERGUS: Tier 2 Online (CPU Mode).")
-                print("AERGUS: Tier 2 Disabled (Rate Limit Protection)")
+                print("AERGUS: Summoning Tier 2 Guardian (unitary/toxic-bert)...")
+                self.classifier = pipeline("text-classification", model="unitary/toxic-bert", top_k=None, device=-1)
+                print("AERGUS: Tier 2 Online (CPU Mode).")
+                # print("AERGUS: Tier 2 Disabled (Rate Limit Protection)")
             except Exception as e:
                 print(f"AERGUS CRITICAL: Tier 2 Failed to Load: {e}")
         
