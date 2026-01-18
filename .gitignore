@@ -29,3 +29,6 @@ check_*.py
 debug_*.py
 SpaceInvaders_OLD.tsx
 SpaceInvadersClean.tsx
+
+# User Data & Materials
+**/uploaded_materials/
