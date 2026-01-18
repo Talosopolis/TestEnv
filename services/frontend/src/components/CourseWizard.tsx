@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
+import { API_BASE_URL } from "../config";
 import { LessonPlan } from "../types";
-import { LessonPlanForm } from "./LessonPlanForm";
+import { SimpleLessonPlanForm } from "./SimpleLessonPlanForm";
 import { WizardStepUpload, UploadedFile } from "./WizardStepUpload";
 import { WizardStepConfig, GenerationConfig } from "./WizardStepConfig";
 import { WizardStepPreview } from "./WizardStepPreview";
@@ -64,7 +65,7 @@ export function CourseWizard({ onCancel, onFinish, existingData }: CourseWizardP
                             formData.append("course_id", courseId);
 
                             try {
-                                const res = await fetch("/api/ingest", {
+                                const res = await fetch(`${API_BASE_URL}/api/ingest`, {
                                     method: "POST",
                                     body: formData
                                 });
@@ -84,7 +85,7 @@ export function CourseWizard({ onCancel, onFinish, existingData }: CourseWizardP
 
                     // 2. Generate Course Structure
                     setStatusMessage("Constructing Curriculum Matrix...");
-                    const genRes = await fetch("/api/generate-course", {
+                    const genRes = await fetch(`${API_BASE_URL}/api/generate-course`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
@@ -125,10 +126,9 @@ export function CourseWizard({ onCancel, onFinish, existingData }: CourseWizardP
                             };
                         }),
                         config,
-                        // Preserve ID if editing, or let TeacherView assign new ID
-                        // If existingData had an ID, we might need to preserve it, but CourseWizard output 
-                        // is usually passed to `handleAdd` which makes a new ID. 
-                        // If we are editing drafts, we handle that outside.
+                        // Preserve the Backend ID so App.tsx can sync correctly!
+                        id: courseId,
+                        createdAt: new Date().toISOString()
                     };
 
                     setGeneratedCourse(course);
@@ -194,7 +194,7 @@ export function CourseWizard({ onCancel, onFinish, existingData }: CourseWizardP
 
             <div className="min-h-[500px]">
                 {step === 1 && (
-                    <LessonPlanForm
+                    <SimpleLessonPlanForm
                         initialData={existingData}
                         onSubmit={handleBasicInfoSubmit}
                         onCancel={onCancel}

@@ -1,0 +1,18 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build',
+      '--build-arg', 'VITE_API_URL=${_VITE_API_URL}',
+      '--build-arg', 'VITE_APP_ENV=${_APP_ENV}',
+      '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/frontend:latest',
+      '.'
+    ]
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/frontend:latest']
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/frontend:latest'
+substitutions:
+  _VITE_API_URL: ''
+  _APP_ENV: 'development'
+  _REGION: 'us-central1'
+  _REPO_NAME: 'talosopolis-repo'

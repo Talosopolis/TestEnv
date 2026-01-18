@@ -3,25 +3,23 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-export const firebaseConfig = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID,
-    measurementId: "G-STBV35WGCE", // Optional, can remain or be env
-};
+import { firebaseConfig as devConfig } from './firebase.config.dev';
+import { firebaseConfig as prodConfig } from './firebase.config.prod';
+
+// Select configuration based on VITE_APP_ENV
+const appEnv = import.meta.env.VITE_APP_ENV || 'development';
+console.log(`Initializing Firebase for Environment: ${appEnv}`);
+
+export const firebaseConfig = appEnv === 'production' ? prodConfig : devConfig;
 
 // Check if configuration is present
 // Check if configuration is present and valid (not placeholders)
+// Check if configuration is present and valid
 const isConfigured =
-    !!import.meta.env.VITE_FIREBASE_API_KEY &&
-    import.meta.env.VITE_FIREBASE_API_KEY !== 'PLACEHOLDER' &&
-    import.meta.env.VITE_FIREBASE_API_KEY !== 'v0-firebase-api-key' &&
-    !!import.meta.env.VITE_FIREBASE_AUTH_DOMAIN;
+    !!firebaseConfig.apiKey &&
+    firebaseConfig.apiKey !== 'PLACEHOLDER' &&
+    firebaseConfig.apiKey !== 'v0-firebase-api-key' &&
+    !!firebaseConfig.authDomain;
 
 import { Auth } from 'firebase/auth';
 import { Firestore } from 'firebase/firestore';

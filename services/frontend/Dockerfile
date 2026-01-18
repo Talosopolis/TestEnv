@@ -11,6 +11,12 @@ RUN npm ci
 COPY . .
 
 # Build
+# Build
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+
+ARG VITE_APP_ENV
+ENV VITE_APP_ENV=$VITE_APP_ENV
 RUN npm run build
 
 # Stage 2: Serve

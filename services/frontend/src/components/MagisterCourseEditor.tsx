@@ -1,4 +1,4 @@
-import { useState, MouseEvent } from "react";
+import { useState, useEffect, MouseEvent } from "react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { ScrollArea } from "./ui/scroll-area";
@@ -9,6 +9,7 @@ import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { toast } from "sonner";
 import { Label } from "./ui/label";
+import { API_BASE_URL } from "../config";
 
 // Type definitions matching our app
 // We use 'any' for courseData temporarily to be flexible with the wizard output vs existing LessonPlan
@@ -26,6 +27,15 @@ export function MagisterCourseEditor({ courseData, onSave, onBack, isWizardMode 
     const [isGenerating, setIsGenerating] = useState(false);
     const [isVerifying, setIsVerifying] = useState(false);
     const [verificationResult, setVerificationResult] = useState<any>(null);
+
+    // Auto-select first lesson on mount if available
+    useEffect(() => {
+        if (!editingLesson && data.modules?.length > 0 && data.modules[0].lessons?.length > 0) {
+            console.log("Auto-selecting first lesson");
+            setEditingLesson({ modIdx: 0, lessIdx: 0 });
+            setExpandedModule(0);
+        }
+    }, []);
 
     const updateField = (field: string, value: string) => {
         setData({ ...data, [field]: value });
@@ -118,11 +128,11 @@ export function MagisterCourseEditor({ courseData, onSave, onBack, isWizardMode 
         }
     };
 
-    const generateLessonContent = async (modIndex: number, lessonIndex: number) => {
+    const generateLessonContent = async (modIndex: number, lessonIndex: number, refineFeedback?: string) => {
         const lesson = data.modules[modIndex].lessons[lessonIndex];
         setIsGenerating(true);
         try {
-            const response = await fetch('/api/generate-lesson', {
+            const response = await fetch(`${API_BASE_URL}/api/generate-lesson`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -131,7 +141,7 @@ export function MagisterCourseEditor({ courseData, onSave, onBack, isWizardMode 
                     level: data.grade || "Intermediate",
                     user_id: "anonymous_hero",
                     // Pass enriched context
-                    description: data.description || "",
+                    description: (data.description || "") + (refineFeedback ? `\n\nCRITICAL REFINEMENT INSTRUCTIONS: The previous content was rejected. Please rewrite it addressing these issues: ${refineFeedback}` : ""),
                     objectives: data.objectives || [],
                     materials: data.materials || [],
                     module_index: modIndex,
@@ -167,7 +177,7 @@ export function MagisterCourseEditor({ courseData, onSave, onBack, isWizardMode 
 
         setIsVerifying(true);
         try {
-            const response = await fetch('/api/quality-check', {
+            const response = await fetch(`${API_BASE_URL}/api/quality-check`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -506,9 +516,19 @@ export function MagisterCourseEditor({ courseData, onSave, onBack, isWizardMode 
                                                                     </ul>
                                                                 )}
                                                             </div>
-                                                            <Button variant="ghost" size="icon" className="h-6 w-6 text-red-400 hover:text-red-200" onClick={() => setVerificationResult(null)}>
-                                                                <X className="w-4 h-4" />
-                                                            </Button>
+                                                            <div className="flex flex-col gap-2 shrink-0">
+                                                                <Button
+                                                                    size="sm"
+                                                                    className="bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/50 uppercase tracking-widest text-[10px] font-bold h-7"
+                                                                    onClick={() => generateLessonContent(editingLesson.modIdx, editingLesson.lessIdx, verificationResult.feedback)}
+                                                                >
+                                                                    <Sparkles className="w-3 h-3 mr-2" />
+                                                                    Auto-Fix
+                                                                </Button>
+                                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-red-400 hover:text-red-200 self-end" onClick={() => setVerificationResult(null)}>
+                                                                    <X className="w-4 h-4" />
+                                                                </Button>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 )}

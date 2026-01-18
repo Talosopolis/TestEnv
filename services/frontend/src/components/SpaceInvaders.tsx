@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
+import { API_BASE_URL } from "../config";
 import { motion, AnimatePresence } from 'framer-motion'
 import { AlertTriangle, Shield, Zap, Skull, Crosshair, Info, RefreshCw, Key, HelpCircle, EyeOff } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -259,7 +260,7 @@ const SpaceInvaders: React.FC<SpaceInvadersProps> = ({ topic, courseId, onExit, 
                     context_content: contextContent
                 }
                 console.log("DEBUG: Sending Quiz Payload:", payload)
-                const res = await fetch('/api/generate-quiz', {
+                const res = await fetch(`${API_BASE_URL}/api/generate-quiz`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -304,7 +305,7 @@ const SpaceInvaders: React.FC<SpaceInvadersProps> = ({ topic, courseId, onExit, 
             // Only if not at end
             if (targetIndex + 1 < TOTAL_QUESTIONS) {
                 // Determine next complexity? Assume same for now or track logic.
-                fetch('/api/generate-quiz', {
+                fetch(`${API_BASE_URL}/api/generate-quiz`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -625,10 +626,11 @@ const SpaceInvaders: React.FC<SpaceInvadersProps> = ({ topic, courseId, onExit, 
                 // DISABLED BY USER REQUEST
                 /*
                 if (Math.random() > 0.9 && !corruptionMode.current) {
-                    fetch('http://localhost:8000/analyze-telemetry', {
-                        // ...
-                    })
-                    // ...
+                    fetch(`${API_BASE_URL}/api/analyze-telemetry`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ user_id: 'anonymous_hero', telemetry: inputHistory.current })
+                    }).catch(e => console.error("Telemetry Error", e))
                 }
                 */
             }

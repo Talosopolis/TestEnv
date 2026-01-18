@@ -9,6 +9,14 @@ BACKEND_SERVICE="talos-backend"
 FRONTEND_SERVICE="talos-frontend"
 GCS_BUCKET="${PROJECT_ID}-talos-data"
 
+# Load API Key from .env
+if [ -f "services/ai-backend/.env" ]; then
+    export GOOGLE_API_KEY=$(grep GOOGLE_API_KEY services/ai-backend/.env | cut -d '=' -f2)
+    echo "🔑 Loaded GOOGLE_API_KEY from services/ai-backend/.env"
+else
+    echo "⚠️ services/ai-backend/.env not found! Make sure GOOGLE_API_KEY is set in environment."
+fi
+
 echo "🚀 Deploying Talosopolis to GCP Project: $PROJECT_ID"
 
 # 1. Enable APIs
@@ -39,7 +47,7 @@ echo "Creating Firestore Database..."
 gcloud firestore databases create --location=$REGION --project=$PROJECT_ID || echo "Database likely exists"
 
 # 4. Build & Push Backend
-echo "Building Backend..."
+echo "Building Backend (Re-enabled for RAG Fix)..."
 gcloud builds submit services/ai-backend \
     --tag $REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/backend:latest \
     --project $PROJECT_ID
@@ -50,19 +58,27 @@ gcloud run deploy $BACKEND_SERVICE \
     --image $REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/backend:latest \
     --region $REGION \
     --project $PROJECT_ID \
-    --ingress internal \
+    --ingress all \
     --allow-unauthenticated \
-    --set-env-vars GCP_PROJECT=$PROJECT_ID,GCS_BUCKET_NAME=$GCS_BUCKET,GOOGLE_API_KEY="CHANGE_ME" \
+    --set-env-vars GCP_PROJECT=$PROJECT_ID,GCS_BUCKET_NAME=$GCS_BUCKET,GOOGLE_API_KEY=$GOOGLE_API_KEY \
     --memory 2Gi
 
 # Get Backend URL
 BACKEND_URL=$(gcloud run services describe $BACKEND_SERVICE --region $REGION --project $PROJECT_ID --format 'value(status.url)')
 echo "Backend URL: $BACKEND_URL"
 
+# Determine Environment
+APP_ENV="development"
+if [[ "$PROJECT_ID" == "talos-prod-483812" ]]; then
+    APP_ENV="production"
+fi
+echo "🌍 Environment: $APP_ENV"
+
 # 6. Build & Push Frontend
 echo "Building Frontend..."
 gcloud builds submit services/frontend \
-    --tag $REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/frontend:latest \
+    --config services/frontend/cloudbuild.yaml \
+    --substitutions=_VITE_API_URL="$BACKEND_URL",_APP_ENV="$APP_ENV",_REGION="$REGION",_REPO_NAME="$REPO_NAME" \
     --project $PROJECT_ID
 
 # 7. Deploy Frontend (Public)

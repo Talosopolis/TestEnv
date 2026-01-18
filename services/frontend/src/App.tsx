@@ -19,6 +19,7 @@ import { Library } from "./components/Library";
 import { Game } from "./components/Game";
 import { PageLayout } from "./components/ui/PageLayout";
 import { LivingBackground } from "./components/ui/LivingBackground";
+import { API_BASE_URL } from "./config";
 import { LessonPlan, Note, Conversation, Message } from "./types";
 import { MOCK_LESSON_PLANS, MOCK_NOTES } from "./mockData";
 
@@ -58,7 +59,7 @@ function AppContent() {
   useEffect(() => {
     const fetchCourses = async () => {
       try {
-        const res = await fetch('/api/courses/user/anonymous_hero');
+        const res = await fetch(`${API_BASE_URL}/api/courses/user/anonymous_hero`);
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data) && data.length > 0) {
@@ -92,7 +93,7 @@ function AppContent() {
   useEffect(() => {
     const fetchBalance = async () => {
       try {
-        const res = await fetch('/api/balance/anonymous_hero');
+        const res = await fetch(`${API_BASE_URL}/api/balance/anonymous_hero`);
         const data = await res.json();
         setBalance(data.balance);
       } catch (e) {
@@ -183,19 +184,55 @@ function AppContent() {
     }
   };
 
-  const addLessonPlan = (plan: Omit<LessonPlan, "id" | "createdAt">) => {
+  const addLessonPlan = async (plan: Omit<LessonPlan, "id" | "createdAt">) => {
+    // If plan already has an ID (from Wizard/Ingest), use it. Otherwise generate.
+    // We cast to any to check if ID exists in the Omit type (it might be passed in runtime)
+    const existingId = (plan as any).id;
+
     const newPlan: LessonPlan = {
       ...plan,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString().split('T')[0]
+      id: existingId || Date.now().toString(),
+      createdAt: (plan as any).createdAt || new Date().toISOString().split('T')[0]
     };
+
     setLessonPlans([newPlan, ...lessonPlans]);
+
+    // Persist to Backend
+    try {
+      await fetch(`${API_BASE_URL}/api/courses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newPlan)
+      });
+      // toast.success("Course synced to cloud"); 
+    } catch (e) {
+      console.error("Failed to sync course", e);
+      toast.error("Sync failed - check connection");
+    }
   };
 
-  const updateLessonPlan = (id: string, updatedPlan: Partial<LessonPlan>) => {
-    setLessonPlans(lessonPlans.map(plan =>
-      plan.id === id ? { ...plan, ...updatedPlan } : plan
-    ));
+  const updateLessonPlan = async (id: string, updatedPlan: Partial<LessonPlan>) => {
+    const updatedList = lessonPlans.map(plan => {
+      if (plan.id === id) {
+        return { ...plan, ...updatedPlan };
+      }
+      return plan;
+    });
+    setLessonPlans(updatedList);
+
+    // Find the full updated plan
+    const finalPlan = updatedList.find(p => p.id === id);
+    if (finalPlan) {
+      try {
+        await fetch(`${API_BASE_URL}/api/courses`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(finalPlan)
+        });
+      } catch (e) {
+        console.error("Failed to update course", e);
+      }
+    }
   };
 
   const deleteLessonPlan = (id: string) => {

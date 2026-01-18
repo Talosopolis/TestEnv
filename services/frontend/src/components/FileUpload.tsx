@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { API_BASE_URL } from "../config";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
 import { Progress } from "./ui/progress";
@@ -80,32 +81,61 @@ export function FileUpload({ onExtracted, onCancel }: FileUploadProps) {
 
     setIsProcessing(true);
     setError(null);
+    setProgress(10); // Start progress
 
     try {
-      // 1. Simulate extraction (keep this for the UI "Lesson Plan" data)
-      const extractedPlan = await simulateExtraction(file);
-
-      // 2. REAL Backend Ingestion (for RAG)
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("course_id", "default"); // Global context for now
+      // Generate a temporary ID or let backend assign one. 
+      // For now, using 'temp-{timestamp}' so backend can create a new entry
+      const tempId = `course-${Date.now()}`;
+      formData.append("course_id", tempId);
+      formData.append("user_id", "anonymous_hero");
 
-      try {
-        await fetch("/api/ingest", {
-          method: "POST",
-          body: formData,
-        });
-        toast.success("File added to AI Knowledge Base!");
-      } catch (backendError) {
-        console.error("Backend ingest failed:", backendError);
-        toast.error("AI Ingest failed (is backend running?), but continuing...");
+      setProgress(30); // Uploading
+
+      const response = await fetch(`${API_BASE_URL}/api/ingest`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server responded with ${response.status}`);
       }
 
-      toast.success("File processed successfully!");
+      setProgress(70); // Analyzing
+
+      const data = await response.json();
+
+      // Map API Response to LessonPlan format
+      // API returns: { status: 'success', course_structure: { ... }, rag_status: ... }
+      const structure = data.course_structure || {};
+
+      const extractedPlan: Omit<LessonPlan, "id" | "createdAt"> = {
+        title: structure.title || file.name.replace(/\.(pdf|doc|docx)$/i, ''),
+        subject: "General", // Could infer from content
+        grade: "Unspecified",
+        description: structure.description || "Imported from " + file.name,
+        objectives: structure.objectives || ["Mastery of uploaded content"], // Backend might not return these yet
+        materials: [file.name],
+        activities: ["Review Material", "Adaptive Quiz"],
+        modules: structure.modules || [], // IMPORTANT: Pass modules
+        duration: "Self-Paced",
+        teacherName: "AI Archivist",
+        isPublic: false,
+        ownerId: "anonymous_hero" // Ensure ownership
+      };
+
+      setProgress(100);
+      toast.success("File processed and saved to Knowledge Base!");
+
+      // Return the REAL data
       onExtracted(extractedPlan);
+
     } catch (err) {
-      setError("Failed to process the file. Please try again or enter the lesson plan manually.");
-      toast.error("Failed to process file");
+      console.error("Ingest failed", err);
+      setError("Failed to process file with AI Backend. Is the server running?");
+      toast.error("AI Ingestion Failed");
       setIsProcessing(false);
     }
   };

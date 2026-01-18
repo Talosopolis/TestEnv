@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { API_BASE_URL } from "../config";
 import { useAuth } from "../contexts/AuthContext";
 import { LessonPlan, Note, Conversation } from "../types";
 import { Button } from "./ui/button";
@@ -98,33 +99,27 @@ export function TeacherView({
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (deletingPlan) {
       const planToDelete = deletingPlan;
-      // Store the lesson for potential undo
-      const timeout = setTimeout(() => {
+      try {
+        await fetch(`${API_BASE_URL}/api/courses/${planToDelete.id}`, {
+          method: 'DELETE',
+        });
+
         onDelete(planToDelete.id);
-        setRecentlyDeleted(null);
-      }, 5000); // 5 seconds to undo
-
-      setRecentlyDeleted({ plan: planToDelete, timeout });
-      setDeletingPlan(null);
-
-      toast.success("Lesson deleted", {
-        action: {
-          label: "Undo",
-          onClick: () => handleUndoDelete(),
-        },
-      });
+        setDeletingPlan(null);
+        toast.success("Lesson deleted permanently");
+      } catch (error) {
+        console.error("Delete failed:", error);
+        toast.error("Failed to delete lesson");
+      }
     }
   };
 
+  // Undo logic removed (Server Delete is permanent)
   const handleUndoDelete = () => {
-    if (recentlyDeleted) {
-      clearTimeout(recentlyDeleted.timeout);
-      setRecentlyDeleted(null);
-      toast.success("Lesson restored");
-    }
+    // no-op
   };
 
   const handleExtracted = (plan: Omit<LessonPlan, "id" | "createdAt">) => {
@@ -161,7 +156,7 @@ export function TeacherView({
         const formData = new FormData();
         formData.append("file", file);
         formData.append("course_id", "default");
-        fetch("/api/ingest", { method: "POST", body: formData })
+        fetch(`${API_BASE_URL}/api/ingest`, { method: "POST", body: formData })
           .catch(e => console.error("AI Ingest Error:", e));
 
         toast.success(`File "${file.name}" loaded`);
@@ -203,7 +198,7 @@ export function TeacherView({
       const formData = new FormData();
       formData.append("file", file);
       formData.append("course_id", "default");
-      fetch("/api/ingest", { method: "POST", body: formData })
+      fetch(`${API_BASE_URL}/api/ingest`, { method: "POST", body: formData })
         .catch(e => console.error("AI Ingest Error:", e));
 
       toast.success(`PDF "${file.name}" loaded successfully`);

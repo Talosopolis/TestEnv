@@ -54,20 +54,40 @@ class PersistenceService:
     def save_courses(self, courses_db: Dict[str, Any]):
         if self.use_firestore and self.firestore_client and self.collection:
             try:
+                # 1. Get all existing document IDs in Firestore
+                # (Optimized: In a real large-scale app, we wouldn't fetch all IDs every save. 
+                #  We would track deletions explicitly. But for this scale, Sync is safer/easier.)
+                existing_docs = self.collection.stream()
+                existing_ids = {doc.id for doc in existing_docs}
+                
+                # 2. Identify deletions
+                current_ids = set(courses_db.keys())
+                ids_to_delete = existing_ids - current_ids
+                
                 batch = self.firestore_client.batch()
                 count = 0
+                
+                # 3. Queue Deletions
+                for doc_id in ids_to_delete:
+                    doc_ref = self.collection.document(doc_id)
+                    batch.delete(doc_ref)
+                    count += 1
+                    
+                # 4. Queue Upserts
                 for course_id, data in courses_db.items():
                     doc_ref = self.collection.document(course_id)
                     batch.set(doc_ref, data)
                     count += 1
+                    
                     if count >= 400:
                         batch.commit()
                         batch = self.firestore_client.batch()
                         count = 0
+                        
                 if count > 0:
                     batch.commit()
-                # Note: This logic does NOT delete courses removed from memory. 
-                # Assuming append-only/update logic for now.
+                    
+                print(f"PersistenceService: Planned Sync Complete. Deleted {len(ids_to_delete)} zombies.")
             except Exception as e:
                 print(f"PersistenceService: Error saving to Firestore: {e}")
         else:

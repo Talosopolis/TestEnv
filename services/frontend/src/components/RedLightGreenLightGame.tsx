@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+import { API_BASE_URL } from "../config";
 
 // --- Types ---
 interface RedLightGreenLightGameProps {
@@ -544,7 +545,7 @@ export default function RedLightGreenLightGame({
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-            const res = await fetch('/api/generate-quiz', {
+            const res = await fetch(`${API_BASE_URL}/api/generate-quiz`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),

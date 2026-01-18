@@ -44,15 +44,23 @@ gcloud builds submit services/ai-backend \
     --tag $REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/backend:latest \
     --project $PROJECT_ID
 
+# Load API Key from .env
+if [ -f services/ai-backend/.env ]; then
+  export $(grep -v '^#' services/ai-backend/.env | xargs)
+  echo "🔑 Loaded GOOGLE_API_KEY from services/ai-backend/.env"
+else
+  echo "⚠️  WARNING: services/ai-backend/.env not found. Using default/empty key."
+fi
+
 # 5. Deploy Backend (Internal)
 echo "Deploying Backend (Internal)..."
 gcloud run deploy $BACKEND_SERVICE \
     --image $REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/backend:latest \
     --region $REGION \
     --project $PROJECT_ID \
-    --ingress internal \
+    --ingress all \
     --allow-unauthenticated \
-    --set-env-vars GCP_PROJECT=$PROJECT_ID,GCS_BUCKET_NAME=$GCS_BUCKET,GOOGLE_API_KEY="CHANGE_ME" \
+    --set-env-vars GCP_PROJECT=$PROJECT_ID,GCS_BUCKET_NAME=$GCS_BUCKET,GOOGLE_API_KEY="$GOOGLE_API_KEY",SKIP_TIER2=true \
     --memory 2Gi
 
 # Get Backend URL
@@ -62,8 +70,9 @@ echo "Backend URL: $BACKEND_URL"
 # 6. Build & Push Frontend
 echo "Building Frontend..."
 gcloud builds submit services/frontend \
-    --tag $REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/frontend:latest \
-    --project $PROJECT_ID
+    --project $PROJECT_ID \
+    --config services/frontend/cloudbuild.yaml \
+    --substitutions=_VITE_API_URL=$BACKEND_URL,_APP_ENV=development
 
 # 7. Deploy Frontend (Public)
 echo "Deploying Frontend (Public)..."

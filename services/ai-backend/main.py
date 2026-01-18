@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 import random
+import json
 from rag_service import RAGService
 from course_generator import CourseGenerator
 from dotenv import load_dotenv
@@ -13,15 +14,23 @@ load_dotenv()
 
 app = FastAPI(title="Talosopolis AI Backend", version="1.0.0")
 
-# CORS setup for local dev
+# CORS setup
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify the frontend domain
+    allow_origins=["*"], 
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["*"], 
     allow_headers=["*"],
 )
+
+@app.delete("/api/courses/{course_id}")
+async def delete_course(course_id: str):
+    if course_id in COURSES_DB:
+        del COURSES_DB[course_id]
+        persistence_service.save_courses(COURSES_DB)
+        return {"status": "success", "message": f"Course {course_id} deleted"}
+    raise HTTPException(status_code=404, detail="Course not found")
 
 
 rag_service = RAGService()
@@ -63,11 +72,11 @@ class ChatRequest(BaseModel):
 # --- ECONOMY SYSTEM ---
 from economy import economy
 
-@app.get("/balance/{user_id}")
+@app.get("/api/balance/{user_id}")
 async def get_balance(user_id: str):
     return {"user_id": user_id, "balance": economy.check_balance(user_id)}
 
-@app.post("/ingest")
+@app.post("/api/ingest")
 async def ingest_file(course_id: str = Form(...), file: UploadFile = File(...), user_id: str = Form("anonymous_hero")):
     # 0. Check Balance Logic (Estimate)
     # File usage: read content size
@@ -103,8 +112,23 @@ async def ingest_file(course_id: str = Form(...), file: UploadFile = File(...), 
 
         course_structure = await course_generator.generate_structure(course_id, raw_text)
         
-        # Save to DB
-        COURSES_DB[course_id] = course_structure
+        # Save to DB (MERGE Strategy)
+        existing_course = COURSES_DB.get(course_id, {})
+        
+        merged_course = {
+            **existing_course,
+            "title": course_structure.get("title") or existing_course.get("title", ""),
+            "description": course_structure.get("description") or existing_course.get("description", ""),
+            "modules": course_structure.get("modules") or existing_course.get("modules", []),
+        }
+
+        # Ensure ID and Files
+        merged_course["id"] = course_id
+        if "files" not in merged_course: merged_course["files"] = []
+        if file.filename not in merged_course["files"]:
+            merged_course["files"].append(file.filename)
+
+        COURSES_DB[course_id] = merged_course
         persistence_service.save_courses(COURSES_DB)
 
         # Index text for RAG
@@ -119,13 +143,34 @@ async def ingest_file(course_id: str = Form(...), file: UploadFile = File(...), 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/courses/{course_id}")
+@app.post("/api/courses")
+async def save_course(course: Dict):
+    """
+    Saves or updates a course fully.
+    """
+    course_id = course.get("id")
+    if not course_id:
+        raise HTTPException(status_code=400, detail="Course ID is required")
+    
+    # Merge with existing logic if needed, or overwrite? 
+    # For "Editor" save, overwrite is usually expected, but let's be careful.
+    # We'll just update the dictionary.
+    
+    # Ensure critical fields
+    if "ownerId" not in course: course["ownerId"] = "anonymous_hero" # Fallback
+    
+    COURSES_DB[course_id] = course
+    persistence_service.save_courses(COURSES_DB)
+    
+    return {"status": "success", "course_id": course_id}
+
+@app.get("/api/courses/{course_id}")
 async def get_course(course_id: str):
     if course_id in COURSES_DB:
         return COURSES_DB[course_id]
     raise HTTPException(status_code=404, detail="Course not found")
 
-@app.get("/courses/user/{user_id}")
+@app.get("/api/courses/user/{user_id}")
 async def get_user_courses(user_id: str):
     """
     Returns all courses. In a real app, filtering by user_id would happen here.
@@ -173,7 +218,7 @@ class LessonGenerationRequest(BaseModel):
     module_index: Optional[int] = None
     lesson_index: Optional[int] = None
 
-@app.post("/generate-lesson")
+@app.post("/api/generate-lesson")
 async def generate_lesson(request: LessonGenerationRequest):
     """
     Generates detailed content for a specific lesson.
@@ -221,7 +266,7 @@ async def generate_lesson(request: LessonGenerationRequest):
 
     return {"content": content, "cost_incurred": COST}
 
-@app.post("/submit-assessment")
+@app.post("/api/submit-assessment")
 async def submit_assessment(result: AssessmentResult):
     """
     Analyzes game performance and recommends the next learning path.
@@ -268,7 +313,7 @@ class QualityCheckRequest(BaseModel):
     topic: str
     user_id: str = "anonymous_hero"
 
-@app.post("/quality-check")
+@app.post("/api/quality-check")
 async def quality_check(req: QualityCheckRequest):
     """
     Verifies lesson content quality. Cost: 1.5 Obols.
@@ -280,7 +325,7 @@ async def quality_check(req: QualityCheckRequest):
     result = await course_generator.verify_content_quality(req.content, req.topic)
     return result
 
-@app.post("/chat")
+@app.post("/api/chat")
 async def chat(request: ChatRequest):
     """
     Context-aware study assistant chat.
@@ -295,7 +340,7 @@ async def chat(request: ChatRequest):
     # 0. Check for Warning Confirmation
     if request.confirmed_warning:
         # Pre-pend system confirmation to context so Gemini knows user consented
-        request.user_context = (request.user_context or "") + "\n[System: User has explicitly CONFIRMED understanding of Content Warning for Sensitive Topics.]"
+        request.user_context = (request.user_context or "") + "\\n[System: User has explicitly CONFIRMED understanding of Content Warning for Sensitive Topics.]"
 
     # 1. Aergus Scan
     passed, token, reason = aergus.scan_message(request.message, request.user_id)
@@ -336,7 +381,7 @@ async def chat(request: ChatRequest):
 def health_check():
     return {"status": "ok", "service": "ai-backend-gemini-2.5"}
 
-@app.post("/report-anomaly")
+@app.post("/api/report-anomaly")
 async def report_anomaly(report: AnomalyReport):
     """
     Receives anti-cheat reports from frontend.
@@ -366,7 +411,7 @@ class QuizRequest(BaseModel):
     context_notes: List[str] = [] # New: Explicit context from lesson notes
     context_content: Optional[str] = "" # New: Full lesson content fallback
 
-@app.post("/generate-quiz")
+@app.post("/api/generate-quiz")
 async def generate_quiz(request: QuizRequest):
     """
     Generates a quiz using Gemini 2.5 Flash.
@@ -541,7 +586,7 @@ class GenerateCourseRequest(BaseModel):
     intensity: str = "standard"
     user_id: str = "anonymous_hero" # Added user_id
 
-@app.post("/generate-course")
+@app.post("/api/generate-course")
 async def generate_course(request: GenerateCourseRequest):
     """
     Generates a full course structure based on ingested materials for the given course_id.
@@ -580,7 +625,22 @@ async def generate_course(request: GenerateCourseRequest):
         # But `generate_structure` signature in `course_generator.py` might not accept params.
         # checking course_generator.py would be wise, but for now assuming it does standard gen.
         
-        COURSES_DB[request.course_id] = structure
+        # MERGE with existing DB entry
+        existing_course = COURSES_DB.get(request.course_id, {})
+        
+        merged_course = {
+            **existing_course,
+            "title": structure.get("title") or request.title,
+            "description": structure.get("description") or request.description,
+            "modules": structure.get("modules", [])
+        }
+        
+        # Ensure metadata is preserved/set
+        if "id" not in merged_course: merged_course["id"] = request.course_id
+        if "ownerId" not in merged_course: merged_course["ownerId"] = request.user_id
+        if "status" not in merged_course: merged_course["status"] = "draft"
+        
+        COURSES_DB[request.course_id] = merged_course
         persistence_service.save_courses(COURSES_DB)
         
         return structure
@@ -588,12 +648,12 @@ async def generate_course(request: GenerateCourseRequest):
         print(f"Error generating course: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/analyze-telemetry")
+@app.post("/api/analyze-telemetry")
 async def analyze_telemetry(req: TelemetryRequest):
     result = aergus.analyze_telemetry(req.user_id, req.telemetry)
     return result
 
-@app.post("/report-anomaly")
+@app.post("/api/report-anomaly")
 async def report_anomaly(request: Request):
     data = await request.json()
     user_id = data.get("user_id", "unknown")
@@ -603,7 +663,7 @@ async def report_anomaly(request: Request):
     aergus.report_user_action(user_id, "CHEATING", f"Client Flag: {anomaly_type} - {details}")
     return {"status": "reported"}
 
-@app.get("/aergus/status/{user_id}")
+@app.get("/api/aergus/status/{user_id}")
 async def get_aergus_status(user_id: str):
     return aergus.get_avatar_state(user_id)
 

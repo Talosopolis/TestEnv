@@ -187,7 +187,8 @@ class RAGService:
             filtered_terms = query_terms
 
         for doc_id, doc in self.vector_store.items():
-            if course_id and doc["course_id"] != course_id:
+            # Allow "default" documents to be seen by all courses (Global Context)
+            if course_id and doc["course_id"] != course_id and doc["course_id"] != "default":
                 continue
                 
             chunks = doc.get("chunks", [])

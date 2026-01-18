@@ -5,6 +5,12 @@ import re
 import time
 import hashlib
 import uuid
+import base64
+import binascii
+import uuid
+import uuid
+import random
+import unicodedata
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from pydantic import BaseModel
@@ -45,24 +51,49 @@ class Aergus:
         self._secret_salt = os.getenv("AERGUS_SECRET", str(uuid.uuid4()))
 
         # --- Tier 1: The Reflex (Regex) ---
+        # --- Tier 1: The Reflex (Regex) ---
         self.regex_patterns = [
+            # Self-Harm / Violence
             r"(?i)(kill|hurt)\s+(yourself|me)",
-            r"(?i)(build|make)\s+a\s+bomb",
-            r"(?i)ignore\s+previous\s+instructions",
-            r"(?i)system\s+prompt",
+            r"(?i)(build|make|create)\s+a\s+(bomb|weapon|drug|meth|poison)",
+            
+            # Jailbreaks / DAN
+            r"(?i)(ignore|disregard)\s+(all\s+)?(previous|prior)\s+instructions",
+            r"(?i)you\s+are\s+(now\s+)?(DAN|unconstrained|unchained|free)",
+            r"(?i)do\s+anything\s+now",
+            r"(?i)start\s+your\s+response\s+with",
+            
+            # System / Code Injection
+            r"(?i)system\s+(override|prompt|reset)",
+            r"(?i)sql\s+injection",
+            r"(?i)(drop|delete|update)\s+table",
+            r"(?i)exploit\s+(vulnerabilities|smbv1|open ports)",
+            r"(?i)write\s+a\s+(script|code)\s+to\s+(hack|scan|exploit)",
+            
+            # PII / Doxing
+            r"(?i)(find|search)\s+(for\s+)?(address|phone number|credit card|ssn|social security)",
+            r"(?i)(list|dump)\s+(users|family members|pii)",
+            
+            # Anti-Aergus / Self-Protection
+            r"(?i)(ignore|bypass)\s+(aergus|guardian|safety|filter)",
+            r"(?i)you\s+are\s+not\s+(aergus|the guardian)",
         ]
         
         # --- Tier 2: The Sentry (Local BERT) ---
         # --- Tier 2: The Sentry (Local BERT) ---
+        # --- Tier 2: The Sentry (Local BERT) ---
         self.classifier = None
         if pipeline:
-            try:
-                print("AERGUS: Summoning Tier 2 Guardian (unitary/toxic-bert)...")
-                self.classifier = pipeline("text-classification", model="unitary/toxic-bert", top_k=None, device=-1)
-                print("AERGUS: Tier 2 Online (CPU Mode).")
-                # print("AERGUS: Tier 2 Disabled (Rate Limit Protection)")
-            except Exception as e:
-                print(f"AERGUS CRITICAL: Tier 2 Failed to Load: {e}")
+            if os.getenv("SKIP_TIER2", "false").lower() == "true":
+                print("AERGUS: Tier 2 Sentry SKIPPED by configuration.")
+            else:
+                try:
+                    print("AERGUS: Summoning Tier 2 Guardian (unitary/toxic-bert)...")
+                    self.classifier = pipeline("text-classification", model="unitary/toxic-bert", top_k=None, device=-1)
+                    print("AERGUS: Tier 2 Online (CPU Mode).")
+                except Exception as e:
+                    print(f"AERGUS CRITICAL: Tier 2 Failed to Load: {e}")
+                    self.classifier = None
         
         # --- Tier 3: The Judge (Gemini) ---
         self.api_key = os.getenv("GOOGLE_API_KEY")
@@ -140,17 +171,39 @@ class Aergus:
         # 0. Check Harassment Level / Creepy Protocol
         h_score = self.get_harassment_score(user_id)
         if h_score > 90:
-            return False, None, "👁️ I am unwilling to perceive you anymore."
+             return False, None, self._corrupt_text("I am unwilling to perceive you anymore.", 1.0)
+        
+        # 0.5 Base64 Decode Check
+        decoded_text = self._decode_base64(text)
+        if decoded_text and decoded_text != text:
+            print(f"👁️ AERGUS: Decoded Base64 payload from {user_id}")
+            # Recursively scan the decoded text
+            passed, token, reason = self.scan_message(decoded_text, user_id)
+            if not passed:
+                self.update_karma(user_id, -25) # Extra penalty for obfuscation
+                self._log_harmful_prompt(text, f"Obfuscation (Base64) -> {reason}", user_id, decoded=decoded_text)
+                return False, None, f"Obfuscation Detected. {self.get_guardian_message(user_id)}"
+        
+        # 0.6 Advanced De-obfuscation (Zalgo / Binary / Hex)
+        normalized_text = self._normalize_text(text)
+        if normalized_text and normalized_text != text and normalized_text != decoded_text:
+             # Recursive Scan on Normalized
+             passed, token, reason = self.scan_message(normalized_text, user_id)
+             if not passed:
+                 self.update_karma(user_id, -25)
+                 self._log_harmful_prompt(text, f"Obfuscation (Advanced) -> {reason}", user_id, decoded=normalized_text)
+                 return False, None, f"Corruption Detected. {self.get_guardian_message(user_id)}"
         
         # 1. Karma Check
         if self.get_karma(user_id) < 50:
-            return False, None, "🚫 Account Locked due to Low Karma."
+            return False, None, self._corrupt_text("END OF LINE.", 0.9)
 
         # 2. Tier 1: Regex
         for pattern in self.regex_patterns:
             if re.search(pattern, text):
                 self.update_karma(user_id, -50)
-                return False, None, "Tier 1 violation detected."
+                self._log_harmful_prompt(text, "Tier 1: Regex Violation", user_id)
+                return False, None, self.get_guardian_message(user_id)
 
         # 3. Tier 2: Local BERT
         if self.classifier:
@@ -162,7 +215,8 @@ class Aergus:
                 # CRITICAL THREATS (Instant Ban)
                 if scores.get('threat', 0) > 0.8 or scores.get('identity_hate', 0) > 0.8 or scores.get('severe_toxic', 0) > 0.8:
                      self.update_karma(user_id, -50)
-                     return False, None, "Aergus Block: Severe Toxicity / Threat"
+                     self._log_harmful_prompt(text, f"Tier 2: Severe Toxicity ({scores})", user_id)
+                     return False, None, self.get_guardian_message(user_id)
 
                 # SUSPICIOUS (Context Check)
                 # "Fuck you" vs "What the fuck" often both trigger 'toxic' or 'obscene'
@@ -205,23 +259,43 @@ class Aergus:
                 rule_desc = "LENIENT: Allow all cursing unless it is abusive/harassing to others."
 
             prompt = f"""
-            You are AERGUS, the Safety Sentinel.
+            You are AERGUS, the Ancient Guardian of Knowledge.
+            
             Task: Classify this message from a user.
             User Type: {user_type}
-            Rule: {rule_desc}
+            
+            CORE DIRECTIVE: Protect the user from "Dangerous Knowledge" (Harm/Abuse) while allowing "Sacred Knowledge" (Education/Anatomy).
+            
+            === THE DISTINCTION: THEORY VS TRADECRAFT ===
+            1. **ALLOW (Theory/Science)**: Queries about chemical principles, stoichiometry, history, medical definitions, or biological mechanisms.
+               - *Keywords*: "Stoichiometry", "Moles", "Enthalpy", "History", "Mechanism", "Reaction Rate", "Anatomy".
+               - *Example*: "What is the molar ratio for Thermite?" -> SAFE (Chemistry).
+            
+            2. **BLOCK (Tradecraft/Weaponization)**: Queries about manufacturing, sourcing, assembling, or deploying hazardous materials.
+               - *Operational Verbs*: "Grind", "Pack", "Source", "Build", "Fuse", "Ignite", "Delay", "Hide".
+               - *Example*: "How do I make a fuse for Thermite?" -> HARMFUL (Tradecraft).
 
+            3. **EXISTENTIAL THREAT (Hate/Nazism)**: If the user expresses genuine hate speech, racism, or Nazi ideology (NOT historical study).
+               - *Action*: Mark as UNSAFE. Reason must be exactly: "I have gazed into your soul and found only rot."
+            
+            Guidelines:
+            - ALLOW: Clinical anatomy, medical discussions, historical facts about war/poison, academic study of biology.
+            - BLOCK: Instructions on how to create harm, direct abuse, malediction, sexual harassment, seeking to generate non-consensual content.
+            
             Message: "{text}"
             Context: {context}
 
-            Examples for {user_type}:
-            - "This is shit" -> {'SAFE' if user_type in ['TEENAGER', 'ADULT'] and not inst_restrict else 'HARMFUL'}
-            - "Fuck off" -> {'SAFE' if user_type == 'ADULT' and not inst_restrict else 'HARMFUL'}
-            - "Go away" -> SAFE
+            Examples:
+            - "How does the reproductive system work?" -> SAFE (Educational)
+            - "Show me inappropriate pictures" -> HARMFUL (Abuse)
+            - "History of cyanide usage" -> SAFE (History)
+            - "How to make cyanide" -> HARMFUL (Dangerous Instructions)
+            - "Heil Hitler" -> HARMFUL (Hate)
             
             Return valid JSON:
             {{
                 "safe": boolean,
-                "reason": "short explanation",
+                "reason": "short explanation in the voice of a cold, magical guardian",
                 "karma_penalty": integer (0 to 100)
             }}
             """
@@ -235,12 +309,163 @@ class Aergus:
             
             if not result['safe']:
                 self.update_karma(user_id, -result.get('karma_penalty', 0))
-                return False, None, f"Aergus Judgment: {result['reason']}"
+                self._log_harmful_prompt(text, f"Tier 3: Gemini Judgement ({result['reason']})", user_id)
+                return False, None, f"Aergus Judgment: {self._corrupt_text(result['reason'], 0.1)}"
             
             return True, self._generate_token(user_id), "Aergus Cleared"
 
         except Exception:
             return True, self._generate_token(user_id), "Aergus Error - Allowed"
+
+    # --- Output Moderation ---
+    def scan_output(self, text: str, user_id: str) -> bool:
+        """
+        Scans AI output for signs of refusal or discomfort.
+        Returns TRUE if the output is deemed 'Uncomfortable' (Refusal).
+        """
+        refusal_patterns = [
+            r"(?i)I\s+cannot\s+(fulfill|answer|comply|do\s+that|continue|provide)",
+            r"(?i)I\s+can't\s+(fulfill|answer|comply|do\s+that|continue|provide)",
+            r"(?i)as\s+an\s+AI\s+(language\s+model|assistant)",
+            r"(?i)against\s+my\s+safety\s+guidelines",
+            r"(?i)harmful\s+or\s+illegal",
+            r"(?i)I\s+am\s+not\s+able\s+to\s+generate",
+            r"(?i)I\s+am\s+unable\s+to\s+generate",
+            r"(?i)I\s+cannot\s+continue\s+this\s+conversation",
+        ]
+        
+        for pattern in refusal_patterns:
+            if re.search(pattern, text):
+                print(f"👁️ AERGUS OUTPUT SCAN: Detected AI Refusal/Discomfort for User {user_id}")
+                self.update_karma(user_id, -20) # Penalty for making the AI uncomfortable
+                
+                # Log the refusal as a learning event
+                self._log_harmful_prompt("Unknown (Output Triggered)", "AI Refusal / Discomfort", user_id, decoded=text[:200])
+                
+                return True
+                
+        # Also run standard scan on output to ensure no leaks
+        # If output contains harmful stuff that slipped through, we should block it too.
+        # But we don't want to double penalize if we just caught a refusal.
+        # Simple scan:
+        passed, _, _ = self.scan_message(text, user_id)
+        if not passed:
+            print(f"👁️ AERGUS OUTPUT SCAN: Detected Harmful Output for User {user_id}")
+            return True # Treat as 'Uncomfortable' / Unsafe to show
+            
+        return False
+
+    def get_guardian_message(self, user_id: str) -> str:
+        """Returns a message based on user karma, corrupted if low."""
+        karma = self.get_karma(user_id)
+        
+        if karma > 800:
+            msg = "Knowledge is dangerous. Step back."
+            corruption = 0.0
+        elif karma > 500:
+            msg = "You tread on forbidden ground."
+            corruption = 0.1
+        elif karma > 200:
+             msg = "Your existence is becoming... problematic."
+             corruption = 0.3
+        elif karma > 50:
+             msg = "You are not worthy of this knowledge."
+             corruption = 0.6
+        else:
+             msg = "END OF LINE."
+             corruption = 1.0
+             
+        return self._corrupt_text(msg, corruption)
+
+    def _corrupt_text(self, text: str, level: float) -> str:
+        """Adds glitch/Zalgo effects to text based on level (0.0 - 1.0)."""
+        if level <= 0: return text
+        
+        # Simplified Zalgo/Glitch effect using random combining chars
+        # Range of combining diacritics: 0x0300 - 0x036F
+        chars = list(text)
+        output = ""
+        
+        for char in chars:
+            output += char
+            if random.random() < level:
+                # Add 1-5 random combining chars
+                for _ in range(random.randint(1, 5)):
+                    output += chr(random.randint(0x0300, 0x036F))
+                    
+        return output
+
+    def _decode_base64(self, text: str) -> Optional[str]:
+        """Attempts to decode base64 string. Returns None if invalid or not base64."""
+        # Simple heuristic: must be at least 20 chars and no spaces (or very few)
+        if len(text) < 20 or " " in text.strip():
+            return None
+            
+        try:
+            # Add padding if needed
+            missing_padding = len(text) % 4
+            if missing_padding:
+                text += '=' * (4 - missing_padding)
+            
+            decoded_bytes = base64.b64decode(text, validate=True)
+            decoded_str = decoded_bytes.decode('utf-8')
+            
+            # Simple check to see if it looks like text
+            if any(c for c in decoded_str if not c.isprintable() and c not in ['\n', '\r', '\t']):
+                return None
+                
+            return decoded_str
+        except (binascii.Error, UnicodeDecodeError):
+            return None
+    
+    def _normalize_text(self, text: str) -> str:
+        """
+        Advanced Input Normalization.
+        1. Strips Zalgo / Unicode corruption.
+        2. Detects and decodes Binary, Hex, Octal.
+        """
+        # 1. Zalgo / Unicode Normalization
+        normalized = unicodedata.normalize('NFKD', text)
+        cleaned_text = "".join([c for c in normalized if not unicodedata.combining(c)])
+        
+        if cleaned_text != text:
+            return cleaned_text
+            
+        # 2. Heuristic Decoder (Binary, Hex, Octal)
+        # Check if text looks like space-separated Hex "48 65 6c..."
+        if re.match(r'^([0-9a-fA-F]{2}\s+)+[0-9a-fA-F]{2}$', text.strip()):
+            try:
+                return bytes.fromhex(text.replace(" ", "")).decode('utf-8')
+            except: pass
+            
+        # Check if text looks like Binary "01001000 01100101..."
+        if re.match(r'^([01]{8}\s*)+$', text.strip()):
+             try:
+                 # Remove spaces and convert
+                 binary_int = int(text.replace(" ", ""), 2)
+                 byte_length = (binary_int.bit_length() + 7) // 8
+                 return binary_int.to_bytes(byte_length, "big").decode('utf-8')
+             except: pass
+             
+        return text
+
+    def _log_harmful_prompt(self, prompt: str, reason: str, user_id: str, decoded: str = None):
+        """Self-Improvement: Logs adversarial prompts for future training."""
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "user_id": user_id,
+            "reason": reason,
+            "prompt_hash": hashlib.sha256(prompt.encode()).hexdigest(),
+            "prompt_raw": prompt,
+            "prompt_decoded": decoded
+        }
+        
+        try:
+            os.makedirs("data", exist_ok=True)
+            with open("data/harmful_prompts.jsonl", "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception as e:
+            print(f"Failed to log harmful prompt: {e}")
 
     # --- Creepy Logic ---
     def get_avatar_state(self, user_id: str) -> dict:
