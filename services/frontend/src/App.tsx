@@ -7,11 +7,12 @@ import SpaceInvaders from "./components/SpaceInvaders";
 import GameLauncher, { GameId } from "./components/GameLauncher";
 import ExcavationGame from "./components/ExcavationGame";
 import RedLightGreenLightGame from "./components/RedLightGreenLightGame";
-import { GraduationCap, BookOpen, Gamepad2, Upload, FileType, Search, Hexagon, Quote, Terminal, LogOut, ArrowLeft } from "lucide-react";
+import { GraduationCap, BookOpen, Gamepad2, Upload, FileType, Search, Hexagon, Quote, Terminal, LogOut, ArrowLeft, Loader2 } from "lucide-react";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
 import { useAuth, AuthProvider } from "./contexts/AuthContext";
 import { SignIn } from "./components/SignIn";
+import AccessDenied from "./components/AccessDenied";
 import { LandingView } from "./components/LandingView";
 import { Manifesto } from "./components/Manifesto";
 import { Covenant } from "./components/Covenant";
@@ -58,8 +59,11 @@ function AppContent() {
 
   useEffect(() => {
     const fetchCourses = async () => {
+      // STRICT FILTER: Only fetch if we have a valid logged-in user
+      if (!user) return;
+
       try {
-        const res = await fetch(`${API_BASE_URL}/api/courses/user/anonymous_hero`);
+        const res = await fetch(`${API_BASE_URL}/api/courses/user/${user.id}`);
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data) && data.length > 0) {
@@ -75,8 +79,10 @@ function AppContent() {
         console.error("Failed to fetch persistent courses", e);
       }
     };
-    fetchCourses();
-  }, []);
+    if (user) {
+      fetchCourses();
+    }
+  }, [user]); // Re-run when user changes
   const [notes, setNotes] = useState<Note[]>(mockNotes);
   const [conversations, setConversations] = useState<Conversation[]>(mockConversations);
 
@@ -92,18 +98,22 @@ function AppContent() {
 
   useEffect(() => {
     const fetchBalance = async () => {
+      if (!user) return;
       try {
-        const res = await fetch(`${API_BASE_URL}/api/balance/anonymous_hero`);
+        const res = await fetch(`${API_BASE_URL}/api/balance/${user.id}`);
         const data = await res.json();
         setBalance(data.balance);
       } catch (e) {
         console.error("Failed to fetch balance", e);
       }
     };
-    fetchBalance();
-    const interval = setInterval(fetchBalance, 30000); // Poll every 30s
-    return () => clearInterval(interval);
-  }, []);
+
+    if (user) {
+      fetchBalance();
+      const interval = setInterval(fetchBalance, 30000); // Poll every 30s
+      return () => clearInterval(interval);
+    }
+  }, [user]);
   const [generatedCourse, setGeneratedCourse] = useState<any | null>(null);
   const [selectedArcadeGame, setSelectedArcadeGame] = useState<GameId | null>(null);
 
@@ -168,7 +178,7 @@ function AppContent() {
         materials: ["Uploaded Document"],
         activities: ["Adaptive Quiz"],
         duration: "Self-paced",
-        teacherName: "Talos AI",
+        teacherName: user?.name || user?.email || "Unknown Teacher",
         createdAt: new Date().toISOString().split('T')[0],
         isPublic: true
       };
@@ -198,16 +208,18 @@ function AppContent() {
     setLessonPlans([newPlan, ...lessonPlans]);
 
     // Persist to Backend
-    try {
-      await fetch(`${API_BASE_URL}/api/courses`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newPlan)
-      });
-      // toast.success("Course synced to cloud"); 
-    } catch (e) {
-      console.error("Failed to sync course", e);
-      toast.error("Sync failed - check connection");
+    if (user?.id) {
+      try {
+        await fetch(`${API_BASE_URL}/api/courses?userId=${user.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newPlan)
+        });
+        // toast.success("Course synced to cloud"); 
+      } catch (e) {
+        console.error("Failed to sync course", e);
+        toast.error("Sync failed - check connection");
+      }
     }
   };
 
@@ -222,9 +234,9 @@ function AppContent() {
 
     // Find the full updated plan
     const finalPlan = updatedList.find(p => p.id === id);
-    if (finalPlan) {
+    if (finalPlan && user?.id) {
       try {
-        await fetch(`${API_BASE_URL}/api/courses`, {
+        await fetch(`${API_BASE_URL}/api/courses?userId=${user.id}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(finalPlan)
@@ -280,6 +292,29 @@ function AppContent() {
 
 
   // --- VIEW ROUTING ---
+  const PUBLIC_VIEWS = ['landing', 'signin'];
+
+  // Global Access Control
+  if (!PUBLIC_VIEWS.includes(currentView)) {
+    // If not logged in and not loading authentication state
+    // (We assume 'bypassAuth' sets user immediately, so !user covers it)
+    const { isLoading } = useAuth(); // Need to destructure isLoading to avoid premature block
+
+    // Wait for auth load
+    if (isLoading) {
+      return (
+        <div className="flex flex-col items-center justify-center h-screen bg-stone-950 text-amber-500 font-serif">
+          <Loader2 className="w-12 h-12 animate-spin mb-4" />
+          <p className="tracking-widest text-xs uppercase">Verifying Clearance...</p>
+        </div>
+      );
+    }
+
+    if (!user) {
+      return <AccessDenied />;
+    }
+  }
+
   if (currentView === 'landing') {
     return <LandingView
       onLogin={() => navigateTo('signin')}
@@ -296,7 +331,7 @@ function AppContent() {
     return <SignIn onBack={() => navigateTo('landing')} onSuccess={() => navigateTo('dashboard')} />;
   }
 
-  // Manifesto / Covenant / Library / Game static pages
+  // Manifesto / Covenant / Library / Game static pages - NOW PROTECTED
   if (currentView === 'manifesto') return <Manifesto onBack={() => navigateTo('landing')} />;
   if (currentView === 'covenant') return <Covenant onBack={() => navigateTo('landing')} />;
   if (currentView === 'library') return <Library onBack={() => navigateTo('landing')} onSearch={async () => "Search functionality coming soon."} />;

@@ -6,7 +6,7 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { Plus, Clock, User, Pencil, Trash2, BookOpen, Upload, MessageSquare, Lock, Globe, FileText, Paperclip, StickyNote } from "lucide-react";
+import { Plus, Clock, User, Pencil, Trash2, BookOpen, Upload, MessageSquare, Lock, Globe, FileText, Paperclip, StickyNote, RotateCcw } from "lucide-react";
 import { CourseWizard } from "./CourseWizard";
 import { MagisterCourseEditor } from "./MagisterCourseEditor";
 import { FileUpload } from "./FileUpload";
@@ -319,16 +319,22 @@ export function TeacherView({
     conv.messages.some(msg => msg.role === "assistant" && !msg.editedByTeacher)
   ).length;
 
-  // Filter out recently deleted lessons and separate by status AND filter by Owner ID
+  // Filter out recently deleted lessons and separate by status AND strictly filter by Owner ID OR Public Access
   const displayedLessonPlans = lessonPlans.filter(plan => {
     const notDeleted = !recentlyDeleted || recentlyDeleted.plan.id !== plan.id;
-    const isOwner = plan.ownerId === user?.id || plan.ownerId === 'anonymous_hero' || (!plan.ownerId && user?.id === 'anonymous_hero');
+    // VISIBILITY RULE: 
+    // 1. User owns the course
+    // 2. OR Course is Public
+    const isOwner = user && plan.ownerId === user.id;
+    const isPublic = plan.isPublic;
+
     return notDeleted && (plan.status === 'published' || !plan.status) && isOwner;
   });
 
   const draftLessonPlans = lessonPlans.filter(plan => {
     const notDeleted = !recentlyDeleted || recentlyDeleted.plan.id !== plan.id;
-    const isOwner = plan.ownerId === user?.id || (!plan.ownerId && user?.id === 'anonymous_hero');
+    // DRAFTS ARE STRICTLY PRIVATE
+    const isOwner = user && plan.ownerId === user.id;
     return notDeleted && plan.status === 'draft' && isOwner;
   });
 
@@ -414,87 +420,127 @@ export function TeacherView({
           <div className="space-y-4 pb-4">
             <h3 className="text-xs uppercase tracking-widest text-stone-500 font-bold flex items-center gap-2 mt-6">
               <BookOpen className="w-3 h-3" />
-              Published Archives ({displayedLessonPlans.length})
+              My Archives ({displayedLessonPlans.length})
             </h3>
             {displayedLessonPlans.length === 0 ? (
               <div className="text-center py-20 text-stone-600 border border-dashed border-stone-800 bg-stone-900/20">
                 <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-20" />
                 <p className="uppercase tracking-widest text-xs mb-2">Archive Empty</p>
-                <p className="text-[10px] text-stone-700">Initialize a new record to begin</p>
+                <p className="text-[10px] text-stone-700 mb-6">Initialize a new record to begin</p>
+
+                {/* Legacy Claim Button */}
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    if (!user) return;
+                    toast.promise(
+                      fetch(`${API_BASE_URL}/api/courses/claim-legacy`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ user_id: user.id })
+                      }).then(res => res.json()),
+                      {
+                        loading: 'Searching for lost archives...',
+                        success: (data) => {
+                          if (data.claimed > 0) {
+                            setTimeout(() => window.location.reload(), 1500); // Reload to fetch new data
+                            return `Recovered ${data.claimed} legacy archives. Refreshing...`;
+                          }
+                          return 'No legacy archives found.';
+                        },
+                        error: 'Failed to claim archives.'
+                      }
+                    );
+                  }}
+                  className="border-amber-900/40 text-amber-700 hover:bg-amber-900/10 hover:text-amber-500 uppercase tracking-widest text-[10px] rounded-none"
+                >
+                  <RotateCcw className="w-3 h-3 mr-2" />
+                  Recover Legacy Data
+                </Button>
               </div>
             ) : (
-              displayedLessonPlans.map(plan => (
-                <Card key={plan.id} className="bg-stone-900 border-amber-900/20 rounded-none group hover:border-amber-500/30 transition-all">
-                  <CardHeader className="pb-3 border-b border-stone-800">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-3 flex-1">
-                        {plan.isPublic ? (
-                          <Globe className="w-4 h-4 text-amber-600 shrink-0" />
-                        ) : (
-                          <Lock className="w-4 h-4 text-stone-500 shrink-0" />
+              displayedLessonPlans.map(plan => {
+                const isOwner = user && plan.ownerId === user.id;
+
+                return (
+                  <Card key={plan.id} className="bg-stone-900 border-amber-900/20 rounded-none group hover:border-amber-500/30 transition-all">
+                    <CardHeader className="pb-3 border-b border-stone-800">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-3 flex-1">
+                          {plan.isPublic ? (
+                            <Globe className="w-4 h-4 text-amber-600 shrink-0" />
+                          ) : (
+                            <Lock className="w-4 h-4 text-stone-500 shrink-0" />
+                          )}
+                          <CardTitle className="text-base text-stone-200 group-hover:text-amber-500 transition-colors uppercase tracking-wide font-bold">{plan.title}</CardTitle>
+                        </div>
+                        <Badge className={`rounded-none uppercase tracking-widest text-[10px] bg-stone-800 text-stone-400 border border-stone-700`}>{plan.subject}</Badge>
+                      </div>
+                      <CardDescription className="line-clamp-2 text-stone-500 text-xs font-sans mt-2">{plan.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4 pt-4">
+                      <div className="flex items-center gap-4 text-xs text-stone-500 uppercase tracking-wider font-bold">
+                        <div className="flex items-center gap-1.5">
+                          <User className="w-3 h-3 text-amber-700" />
+                          {plan.teacherName}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3 h-3 text-amber-700" />
+                          {plan.duration}
+                        </div>
+                        <Badge variant="outline" className="text-[10px] rounded-none border-stone-700 text-stone-400">{plan.grade}</Badge>
+                        <Badge variant={plan.isPublic ? "default" : "secondary"} className={`text-[10px] rounded-none ${plan.isPublic ? 'bg-amber-900/20 text-amber-500 border border-amber-900/50' : 'bg-stone-800 text-stone-500 border border-stone-700'}`}>
+                          {plan.isPublic ? "PUBLIC" : "RESTRICTED"}
+                        </Badge>
+                        {!isOwner && (
+                          <div className="ml-auto text-amber-700/80 uppercase text-[10px] border border-amber-900/30 px-2 py-0.5 bg-amber-950/10">Read Only</div>
                         )}
-                        <CardTitle className="text-base text-stone-200 group-hover:text-amber-500 transition-colors uppercase tracking-wide font-bold">{plan.title}</CardTitle>
                       </div>
-                      <Badge className={`rounded-none uppercase tracking-widest text-[10px] bg-stone-800 text-stone-400 border border-stone-700`}>{plan.subject}</Badge>
-                    </div>
-                    <CardDescription className="line-clamp-2 text-stone-500 text-xs font-sans mt-2">{plan.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4 pt-4">
-                    <div className="flex items-center gap-4 text-xs text-stone-500 uppercase tracking-wider font-bold">
-                      <div className="flex items-center gap-1.5">
-                        <User className="w-3 h-3 text-amber-700" />
-                        {plan.teacherName}
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="w-3 h-3 text-amber-700" />
-                        {plan.duration}
-                      </div>
-                      <Badge variant="outline" className="text-[10px] rounded-none border-stone-700 text-stone-400">{plan.grade}</Badge>
-                      <Badge variant={plan.isPublic ? "default" : "secondary"} className={`text-[10px] rounded-none ${plan.isPublic ? 'bg-amber-900/20 text-amber-500 border border-amber-900/50' : 'bg-stone-800 text-stone-500 border border-stone-700'}`}>
-                        {plan.isPublic ? "PUBLIC" : "RESTRICTED"}
-                      </Badge>
-                    </div>
 
-                    {/* Show attached notes count */}
-                    {notes.filter(note => note.lessonPlanId === plan.id).length > 0 && (
-                      <div className="flex items-center gap-1.5 text-[10px] text-amber-700 bg-amber-950/20 p-2 border border-amber-900/20 uppercase tracking-widest font-bold">
-                        <StickyNote className="w-3.5 h-3.5" />
-                        <span>{notes.filter(note => note.lessonPlanId === plan.id).length} {notes.filter(note => note.lessonPlanId === plan.id).length === 1 ? 'DOC' : 'DOCS'} ATTACHED</span>
-                      </div>
-                    )}
+                      {/* Show attached notes count */}
+                      {notes.filter(note => note.lessonPlanId === plan.id).length > 0 && (
+                        <div className="flex items-center gap-1.5 text-[10px] text-amber-700 bg-amber-950/20 p-2 border border-amber-900/20 uppercase tracking-widest font-bold">
+                          <StickyNote className="w-3.5 h-3.5" />
+                          <span>{notes.filter(note => note.lessonPlanId === plan.id).length} {notes.filter(note => note.lessonPlanId === plan.id).length === 1 ? 'DOC' : 'DOCS'} ATTACHED</span>
+                        </div>
+                      )}
 
-                    <div className="grid grid-cols-3 gap-2 pt-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleAddNoteToLesson(plan)}
-                        className="rounded-none border-stone-700 text-stone-400 hover:bg-stone-800 hover:text-stone-200 uppercase tracking-widest text-[10px]"
-                      >
-                        <Paperclip className="w-3 h-3 mr-1" />
-                        Attach
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setEditingPlan(plan)}
-                        className="rounded-none border-stone-700 text-stone-400 hover:bg-stone-800 hover:text-stone-200 uppercase tracking-widest text-[10px]"
-                      >
-                        <Pencil className="w-3 h-3 mr-1" />
-                        Modify
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-none border-red-900/30 text-red-700 hover:bg-red-950/10 hover:text-red-600 uppercase tracking-widest text-[10px]"
-                        onClick={() => setDeletingPlan(plan)}
-                      >
-                        <Trash2 className="w-3 h-3 mr-1" />
-                        Purge
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
+                      <div className="grid grid-cols-3 gap-2 pt-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleAddNoteToLesson(plan)}
+                          disabled={!isOwner}
+                          className={`rounded-none border-stone-700 uppercase tracking-widest text-[10px] ${!isOwner ? 'opacity-30 cursor-not-allowed' : 'text-stone-400 hover:bg-stone-800 hover:text-stone-200'}`}
+                        >
+                          <Paperclip className="w-3 h-3 mr-1" />
+                          Attach
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setEditingPlan(plan)}
+                          disabled={!isOwner}
+                          className={`rounded-none border-stone-700 uppercase tracking-widest text-[10px] ${!isOwner ? 'opacity-30 cursor-not-allowed' : 'text-stone-400 hover:bg-stone-800 hover:text-stone-200'}`}
+                        >
+                          <Pencil className="w-3 h-3 mr-1" />
+                          Modify
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={`rounded-none border-red-900/30 uppercase tracking-widest text-[10px] ${!isOwner ? 'opacity-30 cursor-not-allowed text-stone-600' : 'text-red-700 hover:bg-red-950/10 hover:text-red-600'}`}
+                          onClick={() => setDeletingPlan(plan)}
+                          disabled={!isOwner}
+                        >
+                          <Trash2 className="w-3 h-3 mr-1" />
+                          Purge
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })
             )}
           </div>
 

@@ -190,12 +190,6 @@ export function LandingView({
                             >
                                 Enter The City
                             </Button>
-                            <Button
-                                onClick={onRegister}
-                                className="w-64 h-14 bg-amber-700 hover:bg-amber-600 text-stone-100 text-lg uppercase tracking-[0.2em] transition-all duration-500 hover:scale-105 shadow-[0_0_30px_-10px_rgba(217,119,6,0.3)] animate-pulse-glow"
-                            >
-                                Begin Journey
-                            </Button>
                         </div>
 
                         {/* Guest Access Removed per User Request */}

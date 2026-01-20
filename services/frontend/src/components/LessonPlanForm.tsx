@@ -16,13 +16,16 @@ type LessonPlanFormProps = {
   onCancel: () => void;
 };
 
+import { useAuth } from "../contexts/AuthContext";
+
 export function LessonPlanForm({ initialData, onSubmit, onCancel }: LessonPlanFormProps) {
+  const { user } = useAuth();
   const [title, setTitle] = useState(initialData?.title || "");
   const [subject, setSubject] = useState(initialData?.subject || "");
   const [grade, setGrade] = useState(initialData?.grade || "");
   const [description, setDescription] = useState(initialData?.description || "");
   const [duration, setDuration] = useState(initialData?.duration || "");
-  const [teacherName, setTeacherName] = useState(initialData?.teacherName || "");
+  const [teacherName, setTeacherName] = useState(initialData?.teacherName || user?.name || user?.email || "");
   const [objectives, setObjectives] = useState<string[]>(initialData?.objectives || [""]);
   const [materials, setMaterials] = useState<string[]>(initialData?.materials || [""]);
   const [activities, setActivities] = useState<string[]>(initialData?.activities || [""]);

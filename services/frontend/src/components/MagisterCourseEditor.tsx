@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { toast } from "sonner";
 import { Label } from "./ui/label";
 import { API_BASE_URL } from "../config";
+import { useAuth } from "../contexts/AuthContext";
 
 // Type definitions matching our app
 // We use 'any' for courseData temporarily to be flexible with the wizard output vs existing LessonPlan
@@ -21,6 +22,7 @@ type MagisterCourseEditorProps = {
 };
 
 export function MagisterCourseEditor({ courseData, onSave, onBack, isWizardMode = false }: MagisterCourseEditorProps) {
+    const { user } = useAuth(); // Import auth
     const [data, setData] = useState(courseData);
     const [expandedModule, setExpandedModule] = useState<number | null>(0);
     const [editingLesson, setEditingLesson] = useState<{ modIdx: number, lessIdx: number } | null>(null);
@@ -132,6 +134,7 @@ export function MagisterCourseEditor({ courseData, onSave, onBack, isWizardMode 
         const lesson = data.modules[modIndex].lessons[lessonIndex];
         setIsGenerating(true);
         try {
+            const userId = user?.id || "anonymous_hero";
             const response = await fetch(`${API_BASE_URL}/api/generate-lesson`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -139,7 +142,7 @@ export function MagisterCourseEditor({ courseData, onSave, onBack, isWizardMode 
                     course_id: data.id || "temp_wizard_id",
                     topic: lesson.title,
                     level: data.grade || "Intermediate",
-                    user_id: "anonymous_hero",
+                    user_id: userId, // Enforce User Check
                     // Pass enriched context
                     description: (data.description || "") + (refineFeedback ? `\n\nCRITICAL REFINEMENT INSTRUCTIONS: The previous content was rejected. Please rewrite it addressing these issues: ${refineFeedback}` : ""),
                     objectives: data.objectives || [],
@@ -177,13 +180,14 @@ export function MagisterCourseEditor({ courseData, onSave, onBack, isWizardMode 
 
         setIsVerifying(true);
         try {
+            const userId = user?.id || "anonymous_hero";
             const response = await fetch(`${API_BASE_URL}/api/quality-check`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     content: lesson.content,
                     topic: lesson.title,
-                    user_id: "anonymous_hero" // TODO: Get actual user
+                    user_id: userId // Enforce User Check
                 })
             });
 
@@ -203,7 +207,6 @@ export function MagisterCourseEditor({ courseData, onSave, onBack, isWizardMode 
             } else {
                 toast.error("Quality Issues Found", { description: result.feedback });
             }
-
         } catch (e) {
             console.error(e);
             toast.error("Failed to verify content");

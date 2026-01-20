@@ -1,9 +1,8 @@
-
 import os
 import re
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from pydantic import BaseModel
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 import random
 import json
 from rag_service import RAGService
@@ -23,14 +22,6 @@ app.add_middleware(
     allow_methods=["*"], 
     allow_headers=["*"],
 )
-
-@app.delete("/api/courses/{course_id}")
-async def delete_course(course_id: str):
-    if course_id in COURSES_DB:
-        del COURSES_DB[course_id]
-        persistence_service.save_courses(COURSES_DB)
-        return {"status": "success", "message": f"Course {course_id} deleted"}
-    raise HTTPException(status_code=404, detail="Course not found")
 
 
 rag_service = RAGService()
@@ -115,11 +106,18 @@ async def ingest_file(course_id: str = Form(...), file: UploadFile = File(...), 
         # Save to DB (MERGE Strategy)
         existing_course = COURSES_DB.get(course_id, {})
         
+        # STRICT OWNERSHIP CHECK
+        existing_owner = existing_course.get("ownerId")
+        if existing_owner and existing_owner != user_id:
+             raise HTTPException(status_code=403, detail="You do not own this course.")
+
         merged_course = {
             **existing_course,
             "title": course_structure.get("title") or existing_course.get("title", ""),
             "description": course_structure.get("description") or existing_course.get("description", ""),
             "modules": course_structure.get("modules") or existing_course.get("modules", []),
+            "ownerId": existing_owner or user_id, # Ensure owner is set
+            "isPublic": existing_course.get("isPublic", False) # Maintain or default
         }
 
         # Ensure ID and Files
@@ -144,25 +142,41 @@ async def ingest_file(course_id: str = Form(...), file: UploadFile = File(...), 
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/courses")
-async def save_course(course: Dict):
-    """
-    Saves or updates a course fully.
-    """
+async def save_course(course: Dict[str, Any], request: Request):
     course_id = course.get("id")
+    # Get user_id from query param (preferred) or try to get it from the course body if trusted (but query param is better for verification)
+    # The frontend should send ?userId=...
+    user_id = request.query_params.get("userId")
+    
     if not course_id:
-        raise HTTPException(status_code=400, detail="Course ID is required")
+        raise HTTPException(status_code=400, detail="Missing course ID")
     
-    # Merge with existing logic if needed, or overwrite? 
-    # For "Editor" save, overwrite is usually expected, but let's be careful.
-    # We'll just update the dictionary.
+    # Validation
+    if not user_id:
+         # For backward compatibility, check if it's in the body, but prefer strictness
+         user_id = course.get("ownerId")
+         if not user_id:
+            raise HTTPException(status_code=400, detail="Missing user ID for ownership verification")
+            
+    # Safety Check: If course exists, verify ownership before overwriting
+    if course_id in COURSES_DB:
+        existing_owner = COURSES_DB[course_id].get("ownerId")
+        
+        # STRICT: exist owner must match incoming owner (or user_id claiming it)
+        if existing_owner and existing_owner != user_id:
+             print(f"BLOCKED OVERWRITE: User {user_id} tried to overwrite course {course_id} owned by {existing_owner}")
+             raise HTTPException(status_code=403, detail="You do not own this course.")
+             
+    # Enforce ownership on the data object itself
+    course["ownerId"] = user_id
     
-    # Ensure critical fields
-    if "ownerId" not in course: course["ownerId"] = "anonymous_hero" # Fallback
-    
+    # Default isPublic
+    if "isPublic" not in course:
+        course["isPublic"] = False 
+        
     COURSES_DB[course_id] = course
     persistence_service.save_courses(COURSES_DB)
-    
-    return {"status": "success", "course_id": course_id}
+    return {"status": "success", "course": course}
 
 @app.get("/api/courses/{course_id}")
 async def get_course(course_id: str):
@@ -172,39 +186,63 @@ async def get_course(course_id: str):
 
 @app.get("/api/courses/user/{user_id}")
 async def get_user_courses(user_id: str):
-    """
-    Returns all courses. In a real app, filtering by user_id would happen here.
-    For MVP/Demo, we return all courses in DB.
-    """
     courses = []
-    for cid, data in COURSES_DB.items():
-        # Handle both dict and Pydantic models (just in case)
-        if hasattr(data, 'dict'): 
-            course_data = data.dict()
-        else:
-            course_data = dict(data)
-            
-        # Inject ID if missing
-        if 'id' not in course_data: course_data['id'] = cid
+    for course_data in COURSES_DB.values():
+        # STRICT FILTER: 
+        # 1. Course is owned by the user
+        # 2. OR Course is explicitly public
+        is_owner = course_data.get("ownerId") == user_id
+        is_public = course_data.get("isPublic") == True
         
-        # Inject Defaults for Frontend Compatibility
-        if "subject" not in course_data: course_data["subject"] = "General"
-        if "grade" not in course_data: course_data["grade"] = "Unspecified"
-        if "teacherName" not in course_data: course_data["teacherName"] = "AI Archivist"
-        if "duration" not in course_data: course_data["duration"] = "Self-Paced"
-        if "status" not in course_data: course_data["status"] = "published"
-        if "ownerId" not in course_data: course_data["ownerId"] = "anonymous_hero"
-        if "isPublic" not in course_data: course_data["isPublic"] = True
-        
-        # Ensure array fields are lists, not None/Missing
-        if "objectives" not in course_data or course_data["objectives"] is None: course_data["objectives"] = []
-        if "materials" not in course_data or course_data["materials"] is None: course_data["materials"] = []
-        if "activities" not in course_data or course_data["activities"] is None: course_data["activities"] = []
-        if "modules" not in course_data or course_data["modules"] is None: course_data["modules"] = []
-        
-        courses.append(course_data)
+        if is_owner or is_public:
+            courses.append(course_data)
         
     return courses
+
+@app.delete("/api/courses/{course_id}")
+async def delete_course(course_id: str, request: Request):
+    # Get user_id from query param or header (simple auth for now)
+    user_id = request.query_params.get("userId")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Missing userId query parameter")
+
+    if course_id not in COURSES_DB:
+        raise HTTPException(status_code=404, detail="Course not found")
+        
+    course = COURSES_DB[course_id]
+    
+    # STRICT OWNERSHIP CHECK
+    if course.get("ownerId") != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this course")
+
+    del COURSES_DB[course_id]
+    persistence_service.save_courses(COURSES_DB) 
+    return {"status": "success", "message": "Course deleted"}
+
+@app.post("/api/courses/claim-legacy")
+async def claim_legacy_courses(request: Request):
+    """
+    Transfers ownership of all 'anonymous_hero' courses to the requesting user.
+    One-time migration tool.
+    """
+    data = await request.json()
+    user_id = data.get("user_id")
+    if not user_id: raise HTTPException(status_code=400, detail="Missing user_id")
+    
+    count = 0
+    for cid, course in COURSES_DB.items():
+        # Check if course is owned by the legacy placeholder
+        # AND check if it's not already claimed (sanity check)
+        if course.get("ownerId") == "anonymous_hero":
+            print(f"Migrating course {cid} to {user_id}")
+            course["ownerId"] = user_id
+            count += 1
+    
+    if count > 0:
+        persistence_service.save_courses(COURSES_DB)
+        print(f"Successfully migrated {count} courses to {user_id}")
+        
+    return {"status": "success", "claimed": count}
 
 class LessonGenerationRequest(BaseModel):
     course_id: str

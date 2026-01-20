@@ -7,6 +7,7 @@ import { WizardStepConfig, GenerationConfig } from "./WizardStepConfig";
 import { WizardStepPreview } from "./WizardStepPreview";
 import { CheckCircle2, Loader2, Sparkles, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "../contexts/AuthContext";
 
 type CourseWizardProps = {
     onCancel: () => void;
@@ -15,6 +16,7 @@ type CourseWizardProps = {
 };
 
 export function CourseWizard({ onCancel, onFinish, existingData }: CourseWizardProps) {
+    const { user } = useAuth(); // Import auth
     const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
     const [basicInfo, setBasicInfo] = useState<Omit<LessonPlan, "id" | "createdAt"> | null>(null);
     const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -47,6 +49,8 @@ export function CourseWizard({ onCancel, onFinish, existingData }: CourseWizardP
         if (step === 4 && basicInfo && config) {
             const generate = async () => {
                 try {
+                    const userId = user?.id || "anonymous_hero"; // Fallback if context strictly null but usually enforced by wrapper
+
                     setGenerationError(null);
                     setProgress(0);
 
@@ -63,6 +67,7 @@ export function CourseWizard({ onCancel, onFinish, existingData }: CourseWizardP
                             const formData = new FormData();
                             formData.append("file", f.file);
                             formData.append("course_id", courseId);
+                            formData.append("user_id", userId); // Pass actual User ID
 
                             try {
                                 const res = await fetch(`${API_BASE_URL}/api/ingest`, {
@@ -93,7 +98,8 @@ export function CourseWizard({ onCancel, onFinish, existingData }: CourseWizardP
                             title: basicInfo.title,
                             description: basicInfo.description,
                             module_count: config.moduleCount,
-                            intensity: config.intensity
+                            intensity: config.intensity,
+                            user_id: userId // Pass actual User ID
                         })
                     });
 
@@ -128,6 +134,7 @@ export function CourseWizard({ onCancel, onFinish, existingData }: CourseWizardP
                         config,
                         // Preserve the Backend ID so App.tsx can sync correctly!
                         id: courseId,
+                        ownerId: userId, // Set Logic Owner
                         createdAt: new Date().toISOString()
                     };
 
@@ -144,7 +151,7 @@ export function CourseWizard({ onCancel, onFinish, existingData }: CourseWizardP
 
             generate();
         }
-    }, [step, basicInfo, config, files]);
+    }, [step, basicInfo, config, files, user]); // Added user dependency
 
     // Step 5: Publish / Draft
     const handlePublish = (finalData: any) => {

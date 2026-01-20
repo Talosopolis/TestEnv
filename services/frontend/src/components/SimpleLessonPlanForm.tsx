@@ -35,7 +35,10 @@ const CURIOUS_TOPICS = [
   { title: "Dyson Sphere Maintenance 101", subject: "Astro-Engineering", description: "Safety protocols for working near stars.", difficulty: 4 }
 ];
 
+import { useAuth } from "../contexts/AuthContext";
+
 export function SimpleLessonPlanForm({ initialData, onSubmit, onCancel }: SimpleLessonPlanFormProps) {
+  const { user } = useAuth();
   const [title, setTitle] = useState(initialData?.title || "");
   const [subject, setSubject] = useState(initialData?.subject || "");
   const [difficulty, setDifficulty] = useState(initialData?.grade ? parseInt(initialData.grade) : 5); // reusing grade as difficulty number for now? Or keep grade string?
@@ -47,7 +50,7 @@ export function SimpleLessonPlanForm({ initialData, onSubmit, onCancel }: Simple
 
   // Defaults for hidden fields
   const [duration, setDuration] = useState("Self-Paced");
-  const [teacherName, setTeacherName] = useState("Talos AI");
+  const [teacherName, setTeacherName] = useState(user?.name || user?.email || "Talos AI");
   const [objectives, setObjectives] = useState<string[]>(["Master the basics"]);
   const [materials, setMaterials] = useState<string[]>(["Digital Textbook"]);
   const [activities, setActivities] = useState<string[]>(["Review", "Quiz"]);

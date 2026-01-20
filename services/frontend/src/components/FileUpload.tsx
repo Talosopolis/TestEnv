@@ -7,12 +7,15 @@ import { Upload, FileText, CheckCircle, AlertCircle, X } from "lucide-react";
 import { LessonPlan } from "../types";
 import { toast } from "sonner";
 
+import { useAuth } from "../contexts/AuthContext";
+
 type FileUploadProps = {
   onExtracted: (plan: Omit<LessonPlan, "id" | "createdAt">) => void;
   onCancel: () => void;
 };
 
 export function FileUpload({ onExtracted, onCancel }: FileUploadProps) {
+  const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -113,17 +116,17 @@ export function FileUpload({ onExtracted, onCancel }: FileUploadProps) {
 
       const extractedPlan: Omit<LessonPlan, "id" | "createdAt"> = {
         title: structure.title || file.name.replace(/\.(pdf|doc|docx)$/i, ''),
-        subject: "General", // Could infer from content
+        subject: "General",
         grade: "Unspecified",
         description: structure.description || "Imported from " + file.name,
-        objectives: structure.objectives || ["Mastery of uploaded content"], // Backend might not return these yet
+        objectives: structure.objectives || ["Mastery of uploaded content"],
         materials: [file.name],
         activities: ["Review Material", "Adaptive Quiz"],
-        modules: structure.modules || [], // IMPORTANT: Pass modules
+        modules: structure.modules || [],
         duration: "Self-Paced",
-        teacherName: "AI Archivist",
+        teacherName: user?.name || user?.email || "Unknown Archivist",
         isPublic: false,
-        ownerId: "anonymous_hero" // Ensure ownership
+        ownerId: user?.id || "anonymous_hero"
       };
 
       setProgress(100);
