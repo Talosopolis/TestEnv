@@ -6,7 +6,7 @@ PROJECT_ID=${1:-"talos-dev-480518"}
 REGION="us-central1"
 REPO_NAME="talosopolis-repo"
 BACKEND_SERVICE="talos-backend"
-FRONTEND_SERVICE="talos-frontend"
+FRONTEND_SERVICE="talos-dev-frontend"
 
 echo "🚀 Deploying Talosopolis FRONTEND ONLY to GCP Project: $PROJECT_ID"
 

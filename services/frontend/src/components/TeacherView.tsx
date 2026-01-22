@@ -422,7 +422,7 @@ export function TeacherView({
               <BookOpen className="w-3 h-3" />
               My Archives ({displayedLessonPlans.length})
             </h3>
-            {displayedLessonPlans.length === 0 ? (
+            {displayedLessonPlans.filter(p => user && p.ownerId === user.id).length === 0 ? (
               <div className="text-center py-20 text-stone-600 border border-dashed border-stone-800 bg-stone-900/20">
                 <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-20" />
                 <p className="uppercase tracking-widest text-xs mb-2">Archive Empty</p>
@@ -459,7 +459,7 @@ export function TeacherView({
                 </Button>
               </div>
             ) : (
-              displayedLessonPlans.map(plan => {
+              displayedLessonPlans.filter(p => user && p.ownerId === user.id).map(plan => {
                 const isOwner = user && plan.ownerId === user.id;
 
                 return (

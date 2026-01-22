@@ -382,6 +382,7 @@ function AppContent() {
               </div>
             )}
 
+
             <div className="pointer-events-auto flex items-center gap-4">
               {user && (
                 <div className="text-right hidden sm:block">
@@ -425,7 +426,7 @@ function AppContent() {
 
               <TabsContent value="teacher" className="m-0 p-4">
                 <TeacherView
-                  lessonPlans={lessonPlans}
+                  lessonPlans={lessonPlans.filter(p => user && p.ownerId === user.id)}
                   notes={notes}
                   conversations={conversations}
                   onAdd={addLessonPlan}
